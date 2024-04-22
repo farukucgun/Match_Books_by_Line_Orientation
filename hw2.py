@@ -1,63 +1,3 @@
-"""
-The goal of this assignment is to match objects by comparing their line patterns. In particular, you will
-try to match books according to the line orientation histograms computed from the images of their covers.
-You are given a data set of books in which each book has two images.
-One of them is the original image of the book cover, and the other one is a rotated version of the cover
-with respect to an arbitrary angle between 0 and 180 degrees. The goal is to find a match between the
-original and rotated books, and then, to find the angle of rotation. 
-
-template images are in the folder "template_images"
-rotated images are in the folder "rotated_images"
-
-
-The approach can be summarised in terms of the following steps.
-• The data:Half of the images belong to the original books, and the remaining belong to the rotated ones.
-• Perform edge detection: run the Canny edge detector on each image after converting it to a greyscale
-image. The output of this step is a binary edge image that marks pixels that represent a significant
-change. You have to experiment with the parameters to obtain important edges that will be useful in
-the following steps. After evaluating different parameter values for a subset of the data set, you must
-fix them and use the same values for all images.
-• Perform line fitting to find line segments: find straight line segments in the edge detector outputs using
-Hough transform. After performing the Hough transform, you can find the bins that accumulated the
-most points in the Hough array. You can play with the minimum number of peaks to find a reasonable
-number of lines. Fig. 4 shows some examples.
-• Compute line orientation histograms: the orientation values are typically in the range [−π,+π]. You
-can divide this range into uniform bins, and compute a histogram of line orientations weighted by line
-lengths. That is, a line should contribute to its corresponding bin by its length instead of just 1. You
-have to experiment with the number of bins to find a good representation.
-• Find a match and compute the angle of rotation for each rotated book: in this step, your task is to
-find the original book of each rotated book using the orientation histograms. Rotated book histograms
-can be considered as shifted versions of the corresponding original book histograms. The number of
-bins in a rotated book histogram that has to be shifted to match the corresponding original book
-histogram should be approximately proportional to the angle of rotation. Hence, the angle of rotation
-can be estimated by finding how many bins the second histogram has to be shifted so that the two
-orientation histograms are similar. The original book of each rotated book can be found by shifting the
-rotated book histogram to one bin at each iteration and calculating the Euclidean distances between
-the shifted histogram and the original book histograms. As a result, the original book that results in
-the minimum Euclidean distance can be a reasonable match. Also, the amount of shift needed can
-be used to find the approximate angle of rotation. Note that you should use circular shifts when you
-compare the histograms.
-• Discuss your results: you should discuss the results of each step and compare how the performance
-is affected by different parameters (i.e., Canny parameters, Hough transform parameters, number of
-bins).
-
-Submission:
-• A report (pdf file) that includes:
-– The results for edge detection for different parameters. You can use edge detection code from
-other sources but you must cite the source that you used.
-– The results for line detection in which detected lines are overlayed on the original images. You
-can use Hough transform code from other sources but you must cite the source that you used.
-– Example line orientation histograms. You must provide results for different numbers of bins.
-– Results for matching the rotated books to the original books as well as the estimated rotation
-angles. You must provide a result for each book, i.e., 15 results. You can provide additional
-results for different parameter settings.
-• A well-documented script that runs the particular sequence of operations and reproduces the result
-presented in your report for computing the line orientation histogram using the line detection results
-and for matching the line orientation histograms for different books using circular shifts and Euclidean
-distances.
-
-"""
-
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -144,8 +84,28 @@ def compute_orientation_histogram(lines, num_bins=36):
     return histogram
 
 
-def match_rotated_books():
-    pass
+def circular_shift(hist, shift):
+    return np.roll(hist, shift)
+
+def find_best_match(rotated_hist, original_hists):
+    min_distance = np.inf
+    best_match_index = -1
+    best_shift = 0
+    
+    # For each bin shift
+    for shift in range(len(rotated_hist)):
+        shifted_hist = circular_shift(rotated_hist, shift)
+        
+        # Compare with each original histogram
+        for idx, original_hist in enumerate(original_hists):
+            distance = np.linalg.norm(shifted_hist - original_hist)
+            
+            if distance < min_distance:
+                min_distance = distance
+                best_match_index = idx
+                best_shift = shift
+                
+    return best_match_index, best_shift
 
 
 def main():
@@ -166,7 +126,9 @@ def main():
         rotated_images.append(cv2.imread("rotated_images/" + rotated_image_names[i], cv2.IMREAD_GRAYSCALE))
 
     # Apply Canny edge detection to the images to get the edges
-    num_bins = 36
+    num_bins = 72
+    template_histograms = []
+    rotated_histograms = []
     for i in range(len(template_image_names)):
         template_edges = canny_edge_detection(template_images[i], 100, 200)
         rotated_edges = canny_edge_detection(rotated_images[i], 100, 200)
@@ -185,13 +147,13 @@ def main():
     
         # Apply Hough transform to the images to find the lines
         # image, rho=1, theta=np.pi/180, threshold=50, min_line_length=50, max_line_gap=10
-        template_lines = line_detection(template_edges, 1, np.pi/180, 50, 50, 10)
-        rotated_lines = line_detection(rotated_edges, 1, np.pi/180, 50, 50, 10)
+        template_lines = line_detection(template_edges, 1, np.pi/180, 70, 50, 10)
+        rotated_lines = line_detection(rotated_edges, 1, np.pi/180, 70, 50, 10)
 
         # Draw the lines on the images
-        print("i: ", i)
-        print(len(template_lines))
-        print(len(rotated_lines))
+        # print("i: ", i)
+        # print(len(template_lines))
+        # print(len(rotated_lines))
         for line in template_lines:
             x1, y1, x2, y2 = line[0]
             cv2.line(template_images[i], (x1, y1), (x2, y2), (0, 255, 0), 1)
@@ -215,7 +177,9 @@ def main():
 
         # Compute the orientation histograms for the lines
         template_histogram = compute_orientation_histogram(template_lines, num_bins)
+        template_histograms.append(template_histogram)
         rotated_histogram = compute_orientation_histogram(rotated_lines, num_bins)
+        rotated_histograms.append(rotated_histogram)
 
         plt.figure()
         plt.bar(np.arange(len(template_histogram)), template_histogram)
@@ -226,7 +190,27 @@ def main():
         plt.bar(np.arange(len(rotated_histogram)), rotated_histogram)
         plt.savefig("histograms/rotated_histogram/" + rotated_image_names[i])
         plt.close()
-                
+
+    # Match each rotated histogram to the best original histogram and estimate the rotation angle
+    matches = []
+    rotation_angles = []
+    angle_per_bin = 360 / num_bins
+
+    for rotated_hist in rotated_histograms:
+        match_index, shift = find_best_match(rotated_hist, template_histograms)
+        matches.append(match_index)
+        rotation_angle = shift * angle_per_bin
+        rotation_angles.append(rotation_angle)
+
+    # Print the match results and estimated rotation angles
+    accuracy = 0
+    for i, (match_index, rotation_angle) in enumerate(zip(matches, rotation_angles)):
+        if i == match_index:
+            accuracy += 1
+        print(f"Rotated Book {i} matches with Original Book {match_index} with an estimated rotation of {rotation_angle} degrees.")
+
+    print(f"Accuracy: {accuracy / len(matches) * 100:.2f}%")
+
         
 if __name__ == "__main__":
     main()

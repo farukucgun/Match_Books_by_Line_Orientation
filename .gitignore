@@ -1,6 +1,7 @@
 *.pdf
 *.docx
 *.txt
+*.zip
 
 /edges
 /histograms

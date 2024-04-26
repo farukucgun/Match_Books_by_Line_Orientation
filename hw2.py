@@ -2,7 +2,10 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import itertools
 
+
+########### GLOBAL VARIABLES ###########
 
 template_images = []
 rotated_images = []
@@ -12,48 +15,12 @@ template_image_names = ["algorithms.png", "bitmemisoykuler.png", "kpss.png", "ci
 # rotated image names are the same with "R" added to the end of the names
 rotated_image_names = template_image_names.copy()
 
+########################################
+
 
 def generate_rotated_image_array():
     for i in range(len(rotated_image_names)):
-        rotated_image_names[i] = rotated_image_names[i].split(".")[0] + "R.png"
-
-
-def two_d_convolution(image, filter):
-    # Get dimensions of the image and the filter
-    image_height, image_width = image.shape
-    filter_height, filter_width = filter.shape
-
-    # Calculate padding size for the image
-    pad_height = filter_height // 2
-    pad_width = filter_width // 2
-
-    # Create an empty output image
-    output_image = np.zeros((image_height, image_width), dtype=np.uint8)
-
-    # Iterate over each pixel in the image
-    for i in range(pad_height, image_height - pad_height):
-        for j in range(pad_width, image_width - pad_width):
-            # Fit the filter in the image at this pixel
-            area_of_interest = image[i-pad_height:i+pad_height+1, j-pad_width:j+pad_width+1]
-
-            # Perform the convolution operation
-            output_image[i, j] = np.sum(area_of_interest * filter)
-
-    return output_image
-
-
-def sobel_filters(img):
-    Kx = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], np.float32)
-    Ky = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]], np.float32)
-    
-    Ix = two_d_convolution(img, Kx)
-    Iy = two_d_convolution(img, Ky)
-    
-    G = np.hypot(Ix, Iy)
-    G = G / G.max() * 255
-    theta = np.arctan2(Iy, Ix)
-    
-    return (G, theta)
+        rotated_image_names[i] = template_image_names[i].split(".")[0] + "R.png"
 
 
 def canny_edge_detection(image, low_threshold=100, high_threshold=200):
@@ -70,6 +37,9 @@ def compute_orientation_histogram(lines, num_bins=36):
     # Define the bin edges to cover the range from -π to π
     bin_edges = np.linspace(-np.pi, np.pi, num_bins + 1)
 
+    if lines is None:
+        return histogram
+    
     for line in lines:
         x1, y1, x2, y2 = line[0]
         # Calculate orientation and length of the line segment
@@ -86,6 +56,7 @@ def compute_orientation_histogram(lines, num_bins=36):
 
 def circular_shift(hist, shift):
     return np.roll(hist, shift)
+
 
 def find_best_match(rotated_hist, original_hists):
     min_distance = np.inf
@@ -108,7 +79,7 @@ def find_best_match(rotated_hist, original_hists):
     return best_match_index, best_shift
 
 
-def main():
+def main(num_bins, canny_low_threshold, canny_high_threshold, hough_threshold, hough_min_line_length, hough_max_line_gap):
     # Create the directories if they do not exist
     directories = ["edges", "edges/template_edges", "edges/rotated_edges", "lines", "lines/template_lines", "lines/rotated_lines",
                    "histograms", "histograms/template_histogram", "histograms/rotated_histogram"]
@@ -126,12 +97,13 @@ def main():
         rotated_images.append(cv2.imread("rotated_images/" + rotated_image_names[i], cv2.IMREAD_GRAYSCALE))
 
     # Apply Canny edge detection to the images to get the edges
-    num_bins = 72
+    num_bins = num_bins
     template_histograms = []
     rotated_histograms = []
+
     for i in range(len(template_image_names)):
-        template_edges = canny_edge_detection(template_images[i], 100, 200)
-        rotated_edges = canny_edge_detection(rotated_images[i], 100, 200)
+        template_edges = canny_edge_detection(template_images[i], canny_low_threshold, canny_high_threshold)
+        rotated_edges = canny_edge_detection(rotated_images[i], canny_low_threshold, canny_high_threshold)
 
         plt.figure()
         plt.imshow(template_edges, cmap="gray")
@@ -147,20 +119,19 @@ def main():
     
         # Apply Hough transform to the images to find the lines
         # image, rho=1, theta=np.pi/180, threshold=50, min_line_length=50, max_line_gap=10
-        template_lines = line_detection(template_edges, 1, np.pi/180, 70, 50, 10)
-        rotated_lines = line_detection(rotated_edges, 1, np.pi/180, 70, 50, 10)
+        template_lines = line_detection(template_edges, 1, np.pi/180, hough_threshold, hough_min_line_length, hough_max_line_gap)
+        rotated_lines = line_detection(rotated_edges, 1, np.pi/180, hough_threshold, hough_min_line_length, hough_max_line_gap)
 
         # Draw the lines on the images
-        # print("i: ", i)
-        # print(len(template_lines))
-        # print(len(rotated_lines))
-        for line in template_lines:
-            x1, y1, x2, y2 = line[0]
-            cv2.line(template_images[i], (x1, y1), (x2, y2), (0, 255, 0), 1)
+        if template_lines is not None:
+            for line in template_lines:
+                x1, y1, x2, y2 = line[0]
+                cv2.line(template_images[i], (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-        for line in rotated_lines:
-            x1, y1, x2, y2 = line[0]
-            cv2.line(rotated_images[i], (x1, y1), (x2, y2), (0, 255, 0), 1)
+        if rotated_lines is not None:
+            for line in rotated_lines:
+                x1, y1, x2, y2 = line[0]
+                cv2.line(rotated_images[i], (x1, y1), (x2, y2), (0, 255, 0), 2)
 
         # Save the images with the lines drawn
         plt.figure()
@@ -170,7 +141,7 @@ def main():
         plt.close()
 
         plt.figure()
-        plt.imshow(rotated_images[i] , cmap="gray")
+        plt.imshow(rotated_images[i], cmap="gray")
         plt.axis("off")
         plt.savefig("lines/rotated_lines/" + rotated_image_names[i])
         plt.close()
@@ -211,6 +182,36 @@ def main():
 
     print(f"Accuracy: {accuracy / len(matches) * 100:.2f}%")
 
+    # with open("results2.txt", "a") as f:
+    #     f.write(f"Accuracy: {accuracy / len(matches) * 100:.2f}%\n\n")
+
         
 if __name__ == "__main__":
-    main()
+    # Best Results:
+    # Parameters: (36, (200, 300), 50, 50, 20)
+    # Accuracy: 80.00%
+    # num_bins, low_threshold, high_threshold, hough_threshold, hough_min_line_length, hough_max_line_gap
+    main(36, 200, 300, 50, 50, 20)
+
+    # Grid Search
+
+    # num_bins_range = [24, 36, 72, 144]
+    # canny_thresholds = [(100, 200), (150, 250), (200, 300)]
+    # hough_threshold_range = [30, 50, 70, 90]
+    # hough_min_line_length_range = [50, 70, 90]
+    # hough_max_line_gap_range = [10, 20, 30]
+
+    # param_grid = itertools.product(
+    #     num_bins_range, 
+    #     canny_thresholds, 
+    #     hough_threshold_range,
+    #     hough_min_line_length_range, 
+    #     hough_max_line_gap_range
+    # )
+
+    # for params in param_grid:
+    #     with open("results2.txt", "a") as f:
+    #         f.write(f"Parameters: {params}\n")
+
+    #     num_bins, (low_threshold, high_threshold), hough_threshold, hough_min_line_length, hough_max_line_gap = params
+    #     main(num_bins, low_threshold, high_threshold, hough_threshold, hough_min_line_length, hough_max_line_gap)
